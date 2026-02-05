@@ -1,8 +1,10 @@
 
 import flet as ft
+import os
 import subprocess
 import threading
 from core.scraper import AniScraper
+from core.download_manager import download_manager
 from core.history_manager import history_manager
 import subprocess
 
@@ -44,20 +46,148 @@ class EpisodeDetailView(ft.Column):
             on_click=self.toggle_favorite
         )
 
+        # Action Mode Toggle (Watch vs Download)
+        self.action_mode = "watch"
+        # Action Mode Toggle (Watch vs Download)
+        self.action_mode = "watch"
+        # Action Mode Toggle (Watch vs Download)
+        self.action_mode = "watch"
+        
+        # Manual Toggle Buttons
+        self.btn_watch = ft.ElevatedButton(
+            "Watch", 
+            icon=ft.Icons.PLAY_ARROW, 
+            on_click=lambda e: self.set_action_mode("watch"),
+            bgcolor="blue", color="white"
+        )
+        self.btn_download = ft.OutlinedButton(
+            "Download", 
+            icon=ft.Icons.DOWNLOAD, 
+            on_click=lambda e: self.set_action_mode("download")
+        )
+
+        self.mode_control = ft.Row(
+            [self.btn_watch, self.btn_download], 
+            alignment=ft.MainAxisAlignment.CENTER,
+            spacing=10
+        )
+
         # Build controls
         self.controls = [
             ft.Row(
                 [
                     ft.IconButton(ft.Icons.ARROW_BACK, on_click=self.go_back),
                     ft.Text(self.anime["title"], size=20, weight=ft.FontWeight.BOLD, expand=True),
-                    self.fav_button,  # Add favorite button
+                    self.fav_button,
                 ]
             ),
+            ft.Row([self.mode_control], alignment=ft.MainAxisAlignment.CENTER), # Add toggle
             ft.Stack([
                 ft.Container(content=self.episodes_grid, expand=True),
                 self.loading_overlay,  # Overlay on top
             ], expand=True),
         ]
+
+    def set_action_mode(self, mode):
+        self.action_mode = mode
+        
+        # Update visual state
+        if mode == "watch":
+            self.btn_watch = ft.ElevatedButton("Watch", icon=ft.Icons.PLAY_ARROW, on_click=lambda e: self.set_action_mode("watch"), bgcolor="blue", color="white")
+            self.btn_download = ft.OutlinedButton("Download", icon=ft.Icons.DOWNLOAD, on_click=lambda e: self.set_action_mode("download"))
+        else:
+            self.btn_watch = ft.OutlinedButton("Watch", icon=ft.Icons.PLAY_ARROW, on_click=lambda e: self.set_action_mode("watch"))
+            self.btn_download = ft.ElevatedButton("Download", icon=ft.Icons.DOWNLOAD, on_click=lambda e: self.set_action_mode("download"), bgcolor="blue", color="white")
+        
+        # Re-render button row
+        self.mode_control.controls = [self.btn_watch, self.btn_download]
+        self.mode_control.update()
+        
+        self.show_snack(f"Mode switched to: {self.action_mode.upper()}")
+        # Reload episodes to update click handlers (or just check mode in handler)
+        # Better to check mode in handler to avoid reload flicker
+        
+    def on_episode_click(self, ep_no):
+        if self.action_mode == "watch":
+            self.play_episode(ep_no)
+        else:
+            self.download_episode_action(ep_no)
+
+    def download_episode_action(self, ep_no):
+        self.show_snack(f"Starting download for Episode {ep_no}...")
+        threading.Thread(target=self._download_episode_thread, args=(ep_no,), daemon=True).start()
+
+    def _download_episode_thread(self, ep_no):
+        # 1. Fetch links (reuse logic?)
+        # For simplicity, copy-paste basic fetch logic or refactor. 
+        # Refactoring play_episode to be reusable for getting stream url would be best.
+        # But for now, lets duplicate fetch logic to keep changes isolated.
+        
+        try:
+            # Show simple loading toast/overlay? No, allow background.
+            print(f"⬇️ Fetching link for download: Episode {ep_no}")
+            
+            embeds = self.scraper.get_episode_embeds(self.anime["id"], ep_no, mode=self.mode)
+            if not embeds:
+                self.show_snack("Download failed: No embeds found")
+                return
+
+            stream_url = None
+            for embed in embeds:
+                stream_url = self.scraper.get_stream_link(embed)
+                if stream_url: break
+            
+            if not stream_url:
+                 self.show_snack("Download failed: No stream link")
+                 return
+            
+            # Start download
+            # Update button to downloading state
+            btn = self.episode_buttons.get(str(ep_no))
+            if btn:
+                btn.content = ft.Row([
+                    ft.ProgressRing(width=16, height=16, stroke_width=2),
+                    ft.Text("Downloading...", size=12),
+                ], alignment=ft.MainAxisAlignment.CENTER)
+                btn.update()
+
+            def on_dl_complete(path):
+                self.show_snack(f"Download complete: {os.path.basename(path)}")
+                if btn:
+                    btn.content = ft.Row([
+                        ft.Icon(ft.Icons.CHECK, color="green"),
+                        ft.Text("Saved", size=12),
+                    ], alignment=ft.MainAxisAlignment.CENTER)
+                    btn.bgcolor = ft.colors.with_opacity(0.2, "green")
+                    btn.update()
+
+            def on_dl_error(err):
+                self.show_snack(f"Download error: {err}")
+                if btn:
+                    btn.content = ft.Row([
+                        ft.Icon(ft.Icons.ERROR, color="red"),
+                        ft.Text("Error", size=12),
+                    ], alignment=ft.MainAxisAlignment.CENTER)
+                    btn.update()
+
+            download_manager.download_episode(
+                stream_url, 
+                self.anime["title"], 
+                ep_no,
+                on_complete=on_dl_complete,
+                on_error=on_dl_error
+            )
+            self.show_snack(f"Download started: Episode {ep_no}")
+            
+        except Exception as e:
+            print(f"Download thread error: {e}")
+            self.show_snack(f"Error starting download: {e}")
+            # Reset button state if error occurred before download started
+            btn = self.episode_buttons.get(str(ep_no))
+            if btn:
+                btn.content = ft.Text(str(ep_no))
+                btn.update()
+
 
     def did_mount(self):
         self.load_episodes()
@@ -104,27 +234,30 @@ class EpisodeDetailView(ft.Column):
             eps = self.scraper.get_episodes_list(self.anime["id"], mode=self.mode)
             
             # Update UI on main thread
-            self.episodes_grid.controls.clear() # Fix duplication
+            self.episodes_grid.controls.clear() 
+            self.episode_buttons = {} # Store references
             
             for ep in eps:
                 # Check if episode is watched
                 is_watched = self.history.is_episode_watched(self.anime["id"], ep)
                 
-                # Create button content with checkmark if watched
+                # Create button container content
                 if is_watched:
                     button_content = ft.Row([
                         ft.Icon(ft.Icons.CHECK_CIRCLE, color="green", size=16),
                         ft.Text(str(ep)),
-                    ], tight=True, spacing=5)
+                    ], tight=True, spacing=5, alignment=ft.MainAxisAlignment.CENTER)
                 else:
                     button_content = ft.Text(str(ep))
                 
-                self.episodes_grid.controls.append(
-                    ft.ElevatedButton(
-                        content=button_content,
-                        on_click=lambda e, ep=ep: self.play_episode(ep)
-                    )
+                btn = ft.ElevatedButton(
+                    content=button_content,
+                    on_click=lambda e, ep=ep: self.on_episode_click(ep),
+                    style=ft.ButtonStyle(padding=0)
                 )
+                self.episode_buttons[str(ep)] = btn # Key as string for safety
+                self.episodes_grid.controls.append(btn)
+                
         except Exception as e:
             print(f"Error loading episodes: {e}")
             # self.show_snack(f"Error loading episodes: {e}") 

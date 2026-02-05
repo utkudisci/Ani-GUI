@@ -5,6 +5,7 @@ def main(page: ft.Page):
     page.title = "Ani-Cli GUI"
     page.theme_mode = ft.ThemeMode.DARK
     page.padding = 10
+    page.window_maximized = True
     
 
     app = AppLayout(page)
