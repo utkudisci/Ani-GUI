@@ -1,13 +1,3 @@
-<p align=center>
-<br>
-<a href="https://discord.gg/aqu7GpqVmR"><img src="https://invidget.switchblade.xyz/aqu7GpqVmR"></a>
-<br>
-<img src="/.assets/matrix-logo.svg" height=100>
-<br>
-<a href="https://github.com/port19x"><img src="https://img.shields.io/badge/lead-port19x-lightblue"></a>
-<br>
-</p>
-
 # 🎬 Ani-Cli GUI
 
 ### A modern, premium anime streaming experience powered by the reliable `ani-cli` engine.
