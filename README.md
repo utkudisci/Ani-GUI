@@ -1,4 +1,4 @@
-# 🎬 Ani Cli GUI
+#Ani Cli GUI
 
 A fresh, high grade anime streamer that runs on the solid ani-cli engine.
 
